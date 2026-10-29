@@ -11,7 +11,10 @@ public static class Policies
     public const string AdminOnly = "AdminOnly";
 }
 
-/// <summary>Translates application exceptions into RFC 7807 problem responses.</summary>
+/*
+ * Global exception handler for the API. Catches exceptions thrown by the application layer and converts them to HTTP responses.
+ * Registered in Program.cs as a singleton.
+ */
 public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
