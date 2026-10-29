@@ -77,21 +77,56 @@ group.MapGet("/summary", async (ISender sender, CancellationToken ct) =>
 
 - **.NET 8 SDK** or later: `dotnet --list-sdks`
 - Visual Studio 2022 (17.8+), Rider, or VS Code with C# Dev Kit
+- **Git**
 
-### Run
+### Clone the repository
 
 ```bash
-cd "IO Monitoring"
+git clone https://github.com/abelawesso/IOMonitoring.git
+cd "IOMonitoring"
+```
+
+Or, if you prefer a specific branch (e.g., `feat/custom`):
+
+```bash
+git clone --branch feat/custom https://github.com/abelawesso/IOMonitoring.git
+cd "IOMonitoring"
+```
+
+### Restore dependencies
+
+```bash
 dotnet restore
+```
+
+This restores all NuGet packages for all projects in the solution.
+
+### Build the project
+
+```bash
 dotnet build
+```
+
+### Run the project
+
+#### Via CLI
+
+```bash
 dotnet run --project src/IOMonitoring.Api --launch-profile https
 ```
 
-Then open **https://localhost:7180**. (The `http` profile uses http://localhost:5180.)
+- HTTPS: Open **https://localhost:7180**
+- HTTP: Use `--launch-profile http` for **http://localhost:5180**
 
-In **Visual Studio**, open `IOMonitoring.sln`, set **IOMonitoring.Api** as the startup project and press F5.
+#### Via Visual Studio
 
-If the browser warns about the certificate, trust the ASP.NET Core dev certificate once:
+1. Open `IOMonitoring.sln`
+2. Set **IOMonitoring.Api** as the startup project (right-click → Set as Startup Project)
+3. Press **F5** or choose **Debug → Start Debugging**
+
+#### Trust the development certificate
+
+If the browser warns about the certificate, trust the ASP.NET Core dev certificate:
 
 ```bash
 dotnet dev-certs https --trust
