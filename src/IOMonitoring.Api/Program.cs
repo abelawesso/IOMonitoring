@@ -7,7 +7,7 @@ using IOMonitoring.Infrastructure.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using Scalar.AspNetCore;
+using AspNetCore.Scalar;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -82,10 +82,11 @@ if (app.Environment.IsDevelopment())
 {
     // OpenAPI JSON at /openapi/v1.json, interactive docs at /scalar/v1
     app.UseSwagger(options => options.RouteTemplate = "openapi/{documentName}.json");
-    app.MapScalarApiReference(options =>
+    app.UseScalar(options =>
     {
-        options.Title = "IO Monitoring API";
-        options.AddPreferredSecuritySchemes(new[] { "Bearer" });
+        options.DocumentTitle = "IO Monitoring API";
+        options.RoutePrefix = "scalar/v1";
+        options.SpecUrl = "/openapi/v1.json";
     });
     app.UseWebAssemblyDebugging();
 }
