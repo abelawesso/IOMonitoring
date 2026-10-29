@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.33" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="8.0.33" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\IOMonitoring.Application\IOMonitoring.Application.csproj" />
+    <ProjectReference Include="..\IOMonitoring.Infrastructure\IOMonitoring.Infrastructure.csproj" />
+    <ProjectReference Include="..\IOMonitoring.Web\IOMonitoring.Web.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,181 @@
+@page "/devices"
+@inject ApiClient Api
+@inject ISnackbar Snackbar
+
+<PageTitle>Devices · IO Monitoring</PageTitle>
+
+<div class="d-flex align-center mb-6">
+    <div>
+        <MudText Typo="Typo.h4">Devices</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">IO Boxes registered on the test benches</MudText>
+    </div>
+    <MudSpacer />
+    <AuthorizeView Roles="Admin,Operator">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="@(() => _showForm = !_showForm)">
+            @(_showForm ? "Close" : "Add device")
+        </MudButton>
+    </AuthorizeView>
+</div>
+
+@if (_showForm)
+{
+    <MudPaper Elevation="1" Class="pa-4 mb-4">
+        <MudText Typo="Typo.h6" Class="mb-2">New device</MudText>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="4"><MudTextField @bind-Value="_new.SerialNumber" Label="Serial number" Variant="Variant.Outlined" /></MudItem>
+            <MudItem xs="12" sm="6" md="4"><MudTextField @bind-Value="_new.Name" Label="Name" Variant="Variant.Outlined" /></MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudSelect T="string" @bind-Value="_new.Model" Label="Model" Variant="Variant.Outlined">
+                    @foreach (var model in Models)
+                    {
+                        <MudSelectItem T="string" Value="@model">@model</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4"><MudTextField @bind-Value="_new.FirmwareVersion" Label="Firmware" Variant="Variant.Outlined" /></MudItem>
+            <MudItem xs="12" sm="6" md="4"><MudTextField @bind-Value="_new.Location" Label="Location" Variant="Variant.Outlined" /></MudItem>
+            <MudItem xs="12" sm="6" md="4" Class="d-flex align-center">
+                <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="CreateAsync" Disabled="_saving">Save</MudButton>
+            </MudItem>
+        </MudGrid>
+        @if (!string.IsNullOrEmpty(_formError))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mt-3" Style="white-space: pre-line">@_formError</MudAlert>
+        }
+    </MudPaper>
+}
+
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+}
+
+<MudPaper Elevation="1" Class="pa-4">
+    <div class="d-flex flex-wrap gap-4 mb-2">
+        <MudTextField @bind-Value="_search" Placeholder="Search name, serial, model, location…" Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" Clearable="true" Style="min-width: 280px" />
+        <MudSelect T="string" @bind-Value="_status" Label="Status" Clearable="true" Style="max-width: 200px">
+            <MudSelectItem T="string" Value="@("Active")">Active</MudSelectItem>
+            <MudSelectItem T="string" Value="@("Maintenance")">Maintenance</MudSelectItem>
+            <MudSelectItem T="string" Value="@("Retired")">Retired</MudSelectItem>
+        </MudSelect>
+    </div>
+
+    <MudTable T="DeviceDto" Items="@Filtered" Hover="true" Dense="true" Elevation="0" Loading="@_loading" RowsPerPage="15">
+        <HeaderContent>
+            <MudTh><MudTableSortLabel T="DeviceDto" SortBy="SortBySerial">Serial</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="DeviceDto" SortBy="SortByName">Name</MudTableSortLabel></MudTh>
+            <MudTh>Model</MudTh>
+            <MudTh>Location</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh><MudTableSortLabel T="DeviceDto" SortBy="SortByRuns">Runs</MudTableSortLabel></MudTh>
+            <MudTh Style="min-width: 160px"><MudTableSortLabel T="DeviceDto" SortBy="SortByPassRate">Pass rate</MudTableSortLabel></MudTh>
+            <MudTh Class="nowrap">Last result</MudTh>
+            <MudTh>Last tested</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Serial" Class="nowrap"><MudLink Href="@($"devices/{context.Id}")">@context.SerialNumber</MudLink></MudTd>
+            <MudTd DataLabel="Name" Class="nowrap">@context.Name</MudTd>
+            <MudTd DataLabel="Model" Class="nowrap">@context.Model</MudTd>
+            <MudTd DataLabel="Location">@context.Location</MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@Ui.StatusColor(context.Status)">@context.Status</MudChip>
+            </MudTd>
+            <MudTd DataLabel="Runs">@context.TotalRuns</MudTd>
+            <MudTd DataLabel="Pass rate">
+                <div class="d-flex align-center">
+                    <MudProgressLinear Value="@context.PassRate" Color="@Ui.PassRateColor(context.PassRate)" Class="mr-2" Style="flex: 1" />
+                    <MudText Typo="Typo.caption">@($"{context.PassRate:0.0}%")</MudText>
+                </div>
+            </MudTd>
+            <MudTd DataLabel="Last result"><OutcomeChip Outcome="@context.LastOutcome" /></MudTd>
+            <MudTd DataLabel="Last tested" Class="nowrap">@(context.LastTestedAt is { } t ? Ui.Local(t) : "—")</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText>No devices match the filters.</MudText>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private static readonly string[] Models = { "IOB-8DI8DO", "IOB-16DI", "IOB-4AI4AO", "IOB-MIX24" };
+
+    private static readonly Func<DeviceDto, object> SortBySerial = d => d.SerialNumber;
+    private static readonly Func<DeviceDto, object> SortByName = d => d.Name;
+    private static readonly Func<DeviceDto, object> SortByRuns = d => d.TotalRuns;
+    private static readonly Func<DeviceDto, object> SortByPassRate = d => d.PassRate;
+
+    private List<DeviceDto> _devices = new();
+    private bool _loading = true;
+    private string? _error;
+    private string? _search;
+    private string? _status;
+
+    private bool _showForm;
+    private bool _saving;
+    private string? _formError;
+    private NewDeviceModel _new = new();
+
+    private IEnumerable<DeviceDto> Filtered => _devices.Where(d =>
+        (string.IsNullOrWhiteSpace(_status) || d.Status == _status) &&
+        (string.IsNullOrWhiteSpace(_search) ||
+         d.Name.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+         d.SerialNumber.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+         d.Model.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+         d.Location.Contains(_search, StringComparison.OrdinalIgnoreCase)));
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _devices = await Api.GetDevicesAsync() ?? new();
+            _error = null;
+        }
+        catch (HttpRequestException ex)
+        {
+            _error = $"Could not load devices: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        _saving = true;
+        _formError = null;
+
+        var (device, error) = await Api.CreateDeviceAsync(new CreateDeviceRequest(
+            _new.SerialNumber, _new.Name, _new.Model, _new.FirmwareVersion, _new.Location));
+
+        _saving = false;
+
+        if (device is null)
+        {
+            _formError = error;
+            return;
+        }
+
+        Snackbar.Add($"Device {device.SerialNumber} added.", Severity.Success);
+        _new = new NewDeviceModel();
+        _showForm = false;
+        await LoadAsync();
+    }
+
+    private sealed class NewDeviceModel
+    {
+        public string SerialNumber { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Model { get; set; } = "IOB-8DI8DO";
+        public string FirmwareVersion { get; set; } = "2.3.0";
+        public string Location { get; set; } = "QA Lab";
+    }
+}

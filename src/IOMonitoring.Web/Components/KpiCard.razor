@@ -1,0 +1,19 @@
+<MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+    <div class="d-flex align-center justify-space-between">
+        <MudText Typo="Typo.subtitle2" Color="Color.Secondary">@Title</MudText>
+        <MudIcon Icon="@Icon" Color="@IconColor" />
+    </div>
+    <MudText Typo="Typo.h4" Class="kpi-value mt-2">@Value</MudText>
+    @if (!string.IsNullOrEmpty(Subtitle))
+    {
+        <MudText Typo="Typo.caption" Color="Color.Secondary">@Subtitle</MudText>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public string Icon { get; set; } = Icons.Material.Filled.Insights;
+    [Parameter] public Color IconColor { get; set; } = Color.Primary;
+}

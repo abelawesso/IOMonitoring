@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" Version="11.10.0" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.10.0" />
+    <PackageReference Include="MediatR" Version="12.4.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.33" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\IOMonitoring.Domain\IOMonitoring.Domain.csproj" />
+    <ProjectReference Include="..\IOMonitoring.Contracts\IOMonitoring.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="IOMonitoring.Application.Tests" />
+  </ItemGroup>
+
+</Project>

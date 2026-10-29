@@ -1,0 +1,241 @@
+# IO Monitoring
+
+A dashboard web app for **IO Box test results**. Electronic IO Boxes (digital/analog inputs and outputs, relays) are exercised on test benches. Each test run records one measurement per channel. The app shows device health, pass rates and failure trends on MudBlazor dashboards.
+
+> **Draft project.** Data lives in an EF Core **in-memory database** filled with deterministic dummy data at startup. Restarting the app resets the data.
+
+---
+
+## Tech stack
+
+| Concern        | Choice |
+|----------------|--------|
+| Runtime        | .NET 8, C# 12 |
+| API            | ASP.NET Core **Minimal API** |
+| Architecture   | Clean Architecture + **CQRS** (MediatR 12, FluentValidation pipeline) |
+| Data           | **Entity Framework Core 8**, `UseInMemoryDatabase` |
+| Frontend       | **Blazor WebAssembly** + **MudBlazor 7** (charts, tables, layout) |
+| Authentication | JWT bearer tokens, role-based authorization (Admin / Operator / Viewer) |
+| API docs       | Swagger UI (Swashbuckle) |
+| Tests          | xUnit |
+
+---
+
+## Solution structure
+
+```
+IO Monitoring/
+├── IOMonitoring.sln
+├── Directory.Build.props              # net8.0, nullable, implicit usings for all projects
+├── src/
+│   ├── IOMonitoring.Domain/           # Entities + enums. No dependencies.
+│   ├── IOMonitoring.Contracts/        # DTOs shared by the API and the Blazor client
+│   ├── IOMonitoring.Application/      # CQRS: commands, queries, handlers, validators
+│   │   ├── Abstractions/              # IAppDbContext, IPasswordHasher, ITokenService
+│   │   ├── Common/                    # ValidationBehavior, exceptions, mappings
+│   │   └── Features/
+│   │       ├── Auth/                  # LoginCommand
+│   │       ├── Dashboard/             # Summary, daily trend, channel failures, stations
+│   │       ├── Devices/               # GetDevices, GetDeviceById, CreateDevice
+│   │       └── TestRuns/              # GetTestRuns (paged), GetTestRunById, RecordTestRun
+│   ├── IOMonitoring.Infrastructure/   # EF Core DbContext, dummy-data seeder, JWT + PBKDF2
+│   ├── IOMonitoring.Api/              # Minimal API endpoints, auth, Swagger; hosts the Web client
+│   └── IOMonitoring.Web/              # Blazor WebAssembly + MudBlazor dashboards
+└── tests/
+    └── IOMonitoring.Application.Tests/
+```
+
+**Dependency direction**
+
+```
+Web ──► Contracts ◄── Application ──► Domain
+                          ▲
+           Infrastructure ┘
+Api ──► Application, Infrastructure, Web (serves the WASM files)
+```
+
+The API host also serves the Blazor WebAssembly client. UI and API share one URL, so there is no CORS setup and only one project to start.
+
+### CQRS in practice
+
+Every endpoint only translates HTTP into a MediatR request:
+
+```csharp
+group.MapGet("/summary", async (ISender sender, CancellationToken ct) =>
+    TypedResults.Ok(await sender.Send(new GetDashboardSummaryQuery(), ct)));
+```
+
+- **Queries** (`Get…Query`) read through `IAppDbContext` with `AsNoTracking` and return DTOs.
+- **Commands** (`CreateDeviceCommand`, `RecordTestRunCommand`, `LoginCommand`) change state.
+- `ValidationBehavior<,>` runs FluentValidation validators before each handler. Failures become `400` problem details. `NotFoundException` becomes `404` and `ConflictException` becomes `409` (see `GlobalExceptionHandler`).
+
+---
+
+## Getting started
+
+### Prerequisites
+
+- **.NET 8 SDK** or later: `dotnet --list-sdks`
+- Visual Studio 2022 (17.8+), Rider, or VS Code with C# Dev Kit
+
+### Run
+
+```bash
+cd "IO Monitoring"
+dotnet restore
+dotnet build
+dotnet run --project src/IOMonitoring.Api --launch-profile https
+```
+
+Then open **https://localhost:7180**. (The `http` profile uses http://localhost:5180.)
+
+In **Visual Studio**, open `IOMonitoring.sln`, set **IOMonitoring.Api** as the startup project and press F5.
+
+If the browser warns about the certificate, trust the ASP.NET Core dev certificate once:
+
+```bash
+dotnet dev-certs https --trust
+```
+
+### Demo accounts
+
+| Username   | Password       | Role     | Can do |
+|------------|----------------|----------|--------|
+| `admin`    | `Admin123!`    | Admin    | Everything |
+| `operator` | `Operator123!` | Operator | View + add devices + record test runs |
+| `viewer`   | `Viewer123!`   | Viewer   | View only |
+
+The login page lists them; click a row to fill the form.
+
+### Tests
+
+```bash
+dotnet test
+```
+
+The tests cover the command/query handlers, validators, password hashing, login and the seeder. Each test uses its own isolated in-memory database and a fixed clock.
+
+---
+
+## Dashboards
+
+| Page | Route | What it shows |
+|------|-------|---------------|
+| **Overview** | `/` | KPI cards (devices, pass rate, failed runs, runs in last 24 h), 14-day results line chart, outcome donut, failure rate by channel type, per-station pass rates, latest failed runs |
+| **Devices** | `/devices` | Searchable, sortable table with status, pass-rate bar and last result. Admin/Operator can add a device. |
+| **Device detail** | `/devices/{id}` | Identity, pass rate, 30-day bar chart, recent runs |
+| **Test runs** | `/test-runs` | Server-side paged list, filters by device, result and date range. Accepts `?outcome=Failed` and `?deviceId=…` |
+| **Run detail** | `/test-runs/{id}` | Run metadata, expected-vs-measured chart for analog channels, per-channel results with deviation and tolerance |
+
+---
+
+## API
+
+Swagger UI is available in Development at **https://localhost:7180/swagger**. Call `POST /api/auth/login`, click **Authorize** and paste the token.
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| POST | `/api/auth/login` | anonymous | Returns a JWT (`LoginResponse`) |
+| GET  | `/api/auth/me` | any user | Current user |
+| GET  | `/api/dashboard/summary` | any user | KPI summary |
+| GET  | `/api/dashboard/trend?days=14` | any user | Passed/failed/aborted per day (1–90 days) |
+| GET  | `/api/dashboard/channel-failures` | any user | Failure rate per channel type |
+| GET  | `/api/dashboard/stations` | any user | Pass rate per test station |
+| GET  | `/api/devices?search=&status=` | any user | Device list |
+| GET  | `/api/devices/{id}` | any user | Device detail, recent runs, 30-day trend |
+| POST | `/api/devices` | Admin, Operator | Register a device |
+| GET  | `/api/test-runs?deviceId=&outcome=&from=&to=&page=&pageSize=` | any user | Paged runs (newest first) |
+| GET  | `/api/test-runs/{id}` | any user | Run with channel results |
+| POST | `/api/test-runs` | Admin, Operator | Record a run; the outcome is computed from the channel readings |
+
+Example: record a test run.
+
+```http
+POST /api/test-runs
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "deviceId": "<device id>",
+  "station": "Bench-02",
+  "operator": "J. Roy",
+  "startedAt": "2026-10-28T14:00:00Z",
+  "completedAt": "2026-10-28T14:02:10Z",
+  "notes": null,
+  "channels": [
+    { "channelNumber": 1, "type": "DigitalInput", "expected": 1,    "measured": 1,     "tolerance": 0 },
+    { "channelNumber": 1, "type": "AnalogInput",  "expected": 12.0, "measured": 12.04, "tolerance": 0.1 }
+  ]
+}
+```
+
+Channel types are `DigitalInput`, `DigitalOutput`, `AnalogInput`, `AnalogOutput` and `Relay`. A channel passes when `|measured − expected| ≤ tolerance`, and a run passes only if every channel passes.
+
+---
+
+## Domain model
+
+```
+Device 1 ── * TestRun 1 ── * ChannelResult
+AppUser (username, PBKDF2 hash, role)
+```
+
+- **Device**: serial number, name, model, firmware, location, status (`Active`, `Maintenance`, `Retired`)
+- **TestRun**: start/end, station, operator, outcome (`Passed`, `Failed`, `Aborted`), notes
+- **ChannelResult**: channel number and type, expected, measured, tolerance, passed
+
+### Dummy data
+
+`DataSeeder` (Infrastructure) runs at startup with a fixed random seed, so the dashboards look the same after every restart:
+
+- 3 demo users
+- 24 IO Boxes across 4 models: `IOB-8DI8DO`, `IOB-16DI`, `IOB-4AI4AO`, `IOB-MIX24`
+- About 30 days of history: 25–60 runs per device on 4 benches
+- Analog channels simulate a 4–20 mA loop (±0.10 mA tolerance); digital and relay channels must match exactly
+- Every 5th box is a "problem unit" with a higher failure rate. About 3 % of runs are aborted.
+
+---
+
+## Configuration
+
+`src/IOMonitoring.Api/appsettings.json`
+
+```json
+"Database": { "Name": "IOMonitoring" },
+"Jwt": {
+  "Issuer": "IOMonitoring.Api",
+  "Audience": "IOMonitoring.Web",
+  "SigningKey": "DEV-ONLY-change-me-…",
+  "ExpiryMinutes": 120
+}
+```
+
+> The signing key in the repo is for development only. For anything shared, override it with user secrets or an environment variable: `dotnet user-secrets set "Jwt:SigningKey" "<32+ random chars>" --project src/IOMonitoring.Api`, or `Jwt__SigningKey=...`.
+
+---
+
+## Moving to a real database
+
+The handlers depend only on `IAppDbContext`, so switching providers touches Infrastructure only:
+
+1. Add `Microsoft.EntityFrameworkCore.SqlServer` (and `.Design` for migrations) to `IOMonitoring.Infrastructure`.
+2. In `DependencyInjection.AddInfrastructure`, replace `UseInMemoryDatabase(...)` with `UseSqlServer(configuration.GetConnectionString("Default"))`.
+3. Create migrations: `dotnet ef migrations add Initial -p src/IOMonitoring.Infrastructure -s src/IOMonitoring.Api`.
+4. Keep `SeedDatabaseAsync` for dev data, or restrict it to Development.
+
+---
+
+## Roadmap ideas
+
+- Real database + migrations (SQL Server / PostgreSQL)
+- Ingestion endpoint or message queue for live bench results; SignalR to push updates to dashboards
+- Refresh tokens and user management for Admins
+- Export (CSV/PDF) of test reports per device
+- Integration tests with `WebApplicationFactory<Program>`
+
+---
+
+## Notes
+
+- Timestamps are stored in UTC and shown in the browser's local time.
+- `Directory.Build.props` sets `net8.0` for every project. Newer SDKs (9/10) build it without changes.

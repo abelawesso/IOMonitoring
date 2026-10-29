@@ -1,0 +1,155 @@
+@page "/test-runs/{Id:guid}"
+@inject ApiClient Api
+
+<PageTitle>Test run · IO Monitoring</PageTitle>
+
+<MudBreadcrumbs Items="_breadcrumbs" Class="px-0 pt-0" />
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (_detail is null)
+{
+    <MudAlert Severity="Severity.Warning">Test run not found.</MudAlert>
+}
+else
+{
+    var run = _detail.Run;
+
+    <div class="d-flex align-center flex-wrap gap-3 mb-6">
+        <MudText Typo="Typo.h4">Test run — @run.DeviceName</MudText>
+        <OutcomeChip Outcome="@run.Outcome" />
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="4">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-2">Run</MudText>
+                <MudSimpleTable Dense="true" Elevation="0">
+                    <tbody>
+                        <tr><td>Device</td><td><MudLink Href="@($"devices/{run.DeviceId}")">@run.DeviceSerial</MudLink></td></tr>
+                        <tr><td>Started</td><td>@Ui.Local(run.StartedAt)</td></tr>
+                        <tr><td>Completed</td><td>@Ui.Local(run.CompletedAt)</td></tr>
+                        <tr><td>Duration</td><td>@Ui.Duration(run.DurationSeconds)</td></tr>
+                        <tr><td>Station</td><td>@run.Station</td></tr>
+                        <tr><td>Operator</td><td>@run.Operator</td></tr>
+                        <tr><td>Channels</td><td>@(run.ChannelCount - run.FailedChannels) passed / @run.ChannelCount</td></tr>
+                    </tbody>
+                </MudSimpleTable>
+                @if (!string.IsNullOrWhiteSpace(_detail.Notes))
+                {
+                    <MudAlert Severity="@(run.Outcome == "Passed" ? Severity.Info : Severity.Warning)" Dense="true" Class="mt-3">@_detail.Notes</MudAlert>
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="8">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                @if (_analogLabels.Length > 0)
+                {
+                    <MudText Typo="Typo.h6">Analog channels — expected vs measured (mA)</MudText>
+                    <MudChart ChartType="ChartType.Bar" ChartSeries="@_analogSeries" XAxisLabels="@_analogLabels"
+                              ChartOptions="@_analogOptions" Width="100%" Height="300px" />
+                }
+                else
+                {
+                    <MudText Typo="Typo.h6">Channel results by type</MudText>
+                    <MudChart ChartType="ChartType.Bar" ChartSeries="@_typeSeries" XAxisLabels="@_typeLabels"
+                              ChartOptions="@_typeOptions" Width="100%" Height="300px" />
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12">
+            <MudPaper Elevation="1" Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Channel details</MudText>
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                    <thead>
+                        <tr><th>Channel</th><th>Type</th><th>Expected</th><th>Measured</th><th>Deviation</th><th>Tolerance</th><th>Result</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in _detail.Channels)
+                        {
+                            <tr>
+                                <td><b>@Ui.ChannelLabel(c.Type, c.ChannelNumber)</b></td>
+                                <td>@Ui.ChannelTypeLabel(c.Type)</td>
+                                <td>@c.Expected.ToString("0.###")</td>
+                                <td>@c.Measured.ToString("0.###")</td>
+                                <td>@((c.Measured - c.Expected).ToString("+0.###;-0.###;0"))</td>
+                                <td>± @c.Tolerance.ToString("0.###")</td>
+                                <td>
+                                    @if (c.Passed)
+                                    {
+                                        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Small" />
+                                    }
+                                    else
+                                    {
+                                        <MudIcon Icon="@Icons.Material.Filled.Cancel" Color="Color.Error" Size="Size.Small" />
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private TestRunDetailDto? _detail;
+    private bool _loading = true;
+
+    private List<ChartSeries> _analogSeries = new();
+    private string[] _analogLabels = Array.Empty<string>();
+    private readonly ChartOptions _analogOptions = new() { ChartPalette = new[] { "#90A4AE", Ui.PrimaryHex }, YAxisTicks = 4 };
+
+    private List<ChartSeries> _typeSeries = new();
+    private string[] _typeLabels = Array.Empty<string>();
+    private readonly ChartOptions _typeOptions = new() { ChartPalette = new[] { Ui.PassedHex, Ui.FailedHex }, YAxisTicks = 2 };
+
+    private List<BreadcrumbItem> _breadcrumbs = new()
+    {
+        new BreadcrumbItem("Test runs", href: "test-runs")
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _detail = await Api.GetTestRunAsync(Id);
+
+        if (_detail is not null)
+        {
+            var analog = _detail.Channels
+                .Where(c => c.Type is "AnalogInput" or "AnalogOutput")
+                .ToList();
+
+            _analogLabels = analog.Select(c => Ui.ChannelLabel(c.Type, c.ChannelNumber)).ToArray();
+            _analogSeries = new List<ChartSeries>
+            {
+                new() { Name = "Expected", Data = analog.Select(c => c.Expected).ToArray() },
+                new() { Name = "Measured", Data = analog.Select(c => c.Measured).ToArray() }
+            };
+
+            var byType = _detail.Channels.GroupBy(c => c.Type).ToList();
+            _typeLabels = byType.Select(g => Ui.ChannelTypeLabel(g.Key)).ToArray();
+            _typeSeries = new List<ChartSeries>
+            {
+                new() { Name = "Passed", Data = byType.Select(g => (double)g.Count(c => c.Passed)).ToArray() },
+                new() { Name = "Failed", Data = byType.Select(g => (double)g.Count(c => !c.Passed)).ToArray() }
+            };
+
+            _breadcrumbs = new List<BreadcrumbItem>
+            {
+                new("Test runs", href: "test-runs"),
+                new(_detail.Run.DeviceSerial, href: $"devices/{_detail.Run.DeviceId}"),
+                new(Ui.Local(_detail.Run.StartedAt), href: null, disabled: true)
+            };
+        }
+
+        _loading = false;
+    }
+}

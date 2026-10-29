@@ -1,0 +1,195 @@
+@page "/"
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>Overview · IO Monitoring</PageTitle>
+
+<MudText Typo="Typo.h4">Test overview</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-6">IO Box test results across all stations</MudText>
+
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+}
+
+@if (_summary is null)
+{
+    if (_error is null)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+}
+else
+{
+    <MudGrid Spacing="3">
+        @* ---------- KPI row ---------- *@
+        <MudItem xs="12" sm="6" lg="3">
+            <KpiCard Title="Devices" Value="@_summary.TotalDevices.ToString()"
+                     Subtitle="@($"{_summary.ActiveDevices} active · {_summary.DevicesInMaintenance} in maintenance")"
+                     Icon="@Icons.Material.Filled.Memory" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <KpiCard Title="Pass rate" Value="@($"{_summary.PassRate:0.0} %")"
+                     Subtitle="@($"{_summary.PassedRuns} passed of {_summary.TotalTestRuns} runs")"
+                     Icon="@Icons.Material.Filled.Verified" IconColor="@Ui.PassRateColor(_summary.PassRate)" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <KpiCard Title="Failed runs" Value="@_summary.FailedRuns.ToString()"
+                     Subtitle="@($"{_summary.AbortedRuns} aborted")"
+                     Icon="@Icons.Material.Filled.ErrorOutline" IconColor="Color.Error" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <KpiCard Title="Runs in last 24 h" Value="@_summary.RunsLast24h.ToString()"
+                     Subtitle="@($"Avg. duration {Ui.Duration(_summary.AverageDurationSeconds)}")"
+                     Icon="@Icons.Material.Filled.Schedule" />
+        </MudItem>
+
+        @* ---------- Trend + outcome split ---------- *@
+        <MudItem xs="12" lg="8">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6">Daily results — last @TrendDays days</MudText>
+                <MudChart ChartType="ChartType.Line" ChartSeries="@_trendSeries" XAxisLabels="@_trendLabels"
+                          ChartOptions="@_outcomeOptions" Width="100%" Height="320px" />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" lg="4">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6">Outcome split</MudText>
+                <div class="d-flex justify-center">
+                    <MudChart ChartType="ChartType.Donut" InputData="@_outcomeData" InputLabels="@_outcomeLabels"
+                              ChartOptions="@_outcomeOptions" Width="280px" Height="280px" />
+                </div>
+            </MudPaper>
+        </MudItem>
+
+        @* ---------- Channel failures + stations ---------- *@
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6">Channel failure rate by type (%)</MudText>
+                <MudChart ChartType="ChartType.Bar" ChartSeries="@_channelSeries" XAxisLabels="@_channelLabels"
+                          ChartOptions="@_failureOptions" Width="100%" Height="300px" />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-2">Test stations</MudText>
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                    <thead>
+                        <tr><th>Station</th><th>Runs</th><th>Passed</th><th>Failed</th><th style="width: 40%">Pass rate</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var s in _stations)
+                        {
+                            <tr>
+                                <td>@s.Station</td>
+                                <td>@s.Runs</td>
+                                <td>@s.Passed</td>
+                                <td>@s.Failed</td>
+                                <td>
+                                    <div class="d-flex align-center">
+                                        <MudProgressLinear Value="@s.PassRate" Color="@Ui.PassRateColor(s.PassRate)" Class="mr-2" Style="flex: 1" />
+                                        <MudText Typo="Typo.caption">@($"{s.PassRate:0.0}%")</MudText>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+        </MudItem>
+
+        @* ---------- Latest failures ---------- *@
+        <MudItem xs="12">
+            <MudPaper Elevation="1" Class="pa-4">
+                <div class="d-flex align-center mb-2">
+                    <MudText Typo="Typo.h6">Latest failed runs</MudText>
+                    <MudSpacer />
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Href="test-runs?outcome=Failed">See all</MudButton>
+                </div>
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                    <thead>
+                        <tr><th>Started</th><th>Device</th><th>Station</th><th>Operator</th><th>Failed channels</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var run in _latestFailures)
+                        {
+                            <tr class="clickable-row" @onclick="@(() => Nav.NavigateTo($"test-runs/{run.Id}"))">
+                                <td>@Ui.Local(run.StartedAt)</td>
+                                <td>@run.DeviceName <MudText Typo="Typo.caption" Color="Color.Secondary" Inline="true">@run.DeviceSerial</MudText></td>
+                                <td>@run.Station</td>
+                                <td>@run.Operator</td>
+                                <td><MudText Color="Color.Error" Typo="Typo.body2">@run.FailedChannels / @run.ChannelCount</MudText></td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private const int TrendDays = 14;
+
+    private DashboardSummaryDto? _summary;
+    private string? _error;
+
+    private List<ChartSeries> _trendSeries = new();
+    private string[] _trendLabels = Array.Empty<string>();
+
+    private double[] _outcomeData = Array.Empty<double>();
+    private readonly string[] _outcomeLabels = { "Passed", "Failed", "Aborted" };
+
+    private List<ChartSeries> _channelSeries = new();
+    private string[] _channelLabels = Array.Empty<string>();
+
+    private List<StationStatsDto> _stations = new();
+    private IReadOnlyList<TestRunDto> _latestFailures = Array.Empty<TestRunDto>();
+
+    private readonly ChartOptions _outcomeOptions = new() { ChartPalette = Ui.OutcomePalette, YAxisTicks = 10 };
+    private readonly ChartOptions _failureOptions = new() { ChartPalette = new[] { Ui.FailedHex }, YAxisTicks = 1 };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // Fire the requests in parallel.
+            var summaryTask = Api.GetSummaryAsync();
+            var trendTask = Api.GetTrendAsync(TrendDays);
+            var channelTask = Api.GetChannelFailuresAsync();
+            var stationTask = Api.GetStationStatsAsync();
+            var failuresTask = Api.GetTestRunsAsync(new TestRunFilter(Outcome: "Failed", PageSize: 8));
+
+            var summary = await summaryTask;
+            var trend = await trendTask ?? new();
+            var channels = await channelTask ?? new();
+            _stations = await stationTask ?? new();
+            _latestFailures = (await failuresTask)?.Items ?? Array.Empty<TestRunDto>();
+
+            _trendLabels = trend.Select(p => p.Date.ToString("dd/MM")).ToArray();
+            _trendSeries = new List<ChartSeries>
+            {
+                new() { Name = "Passed", Data = trend.Select(p => (double)p.Passed).ToArray() },
+                new() { Name = "Failed", Data = trend.Select(p => (double)p.Failed).ToArray() },
+                new() { Name = "Aborted", Data = trend.Select(p => (double)p.Aborted).ToArray() }
+            };
+
+            if (summary is not null)
+            {
+                _outcomeData = new double[] { summary.PassedRuns, summary.FailedRuns, summary.AbortedRuns };
+            }
+
+            _channelLabels = channels.Select(c => Ui.ChannelTypeLabel(c.ChannelType)).ToArray();
+            _channelSeries = new List<ChartSeries>
+            {
+                new() { Name = "Failure rate %", Data = channels.Select(c => c.FailureRate).ToArray() }
+            };
+
+            _summary = summary; // set last so the page renders with all data ready
+        }
+        catch (HttpRequestException ex)
+        {
+            _error = $"Could not load dashboard data: {ex.Message}";
+        }
+    }
+}

@@ -1,0 +1,114 @@
+@page "/login"
+@layout EmptyLayout
+@attribute [AllowAnonymous]
+@inject AuthService Auth
+@inject NavigationManager Nav
+
+<PageTitle>Sign in · IO Monitoring</PageTitle>
+
+<MudPaper Elevation="3" Class="pa-8" Style="width: 100%; max-width: 420px;">
+    <div class="d-flex align-center mb-6">
+        <MudIcon Icon="@Icons.Material.Filled.Memory" Color="Color.Primary" Size="Size.Large" Class="mr-3" />
+        <div>
+            <MudText Typo="Typo.h5">IO Monitoring</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">IO Box test dashboards</MudText>
+        </div>
+    </div>
+
+    <EditForm Model="_model" OnValidSubmit="SubmitAsync">
+        <MudTextField @bind-Value="_model.Username" Label="Username" Variant="Variant.Outlined"
+                      Class="mb-4" AutoFocus="true" Required="true" />
+        <MudTextField @bind-Value="_model.Password" Label="Password" Variant="Variant.Outlined"
+                      InputType="InputType.Password" Class="mb-4" Required="true" />
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mb-4">@_error</MudAlert>
+        }
+
+        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
+                   FullWidth="true" Disabled="_busy" Size="Size.Large">
+            @(_busy ? "Signing in…" : "Sign in")
+        </MudButton>
+    </EditForm>
+
+    <MudDivider Class="my-6" />
+
+    <MudText Typo="Typo.subtitle2" Class="mb-2">Demo accounts</MudText>
+    <MudSimpleTable Dense="true" Elevation="0">
+        <tbody>
+            @foreach (var (user, pass, role) in DemoAccounts)
+            {
+                <tr class="clickable-row" @onclick="() => Fill(user, pass)">
+                    <td><code>@user</code></td>
+                    <td><code>@pass</code></td>
+                    <td>@role</td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+    <MudText Typo="Typo.caption" Color="Color.Secondary">Click a row to fill the form.</MudText>
+</MudPaper>
+
+@code {
+    private static readonly (string User, string Pass, string Role)[] DemoAccounts =
+    {
+        ("admin", "Admin123!", "Admin"),
+        ("operator", "Operator123!", "Operator"),
+        ("viewer", "Viewer123!", "Viewer")
+    };
+
+    private readonly LoginModel _model = new();
+    private string? _error;
+    private bool _busy;
+
+    private void Fill(string user, string pass)
+    {
+        _model.Username = user;
+        _model.Password = pass;
+        _error = null;
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_model.Username) || string.IsNullOrWhiteSpace(_model.Password))
+        {
+            _error = "Enter a username and a password.";
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+
+        var (success, error) = await Auth.LoginAsync(_model.Username, _model.Password);
+        _busy = false;
+
+        if (!success)
+        {
+            _error = error;
+            return;
+        }
+
+        Nav.NavigateTo(SafeReturnUrl());
+    }
+
+    private string SafeReturnUrl()
+    {
+        var query = new Uri(Nav.Uri).Query;
+        var returnUrl = System.Web.HttpUtility.ParseQueryString(query)["returnUrl"];
+
+        // Only allow app-relative paths (prevents open redirects).
+        if (string.IsNullOrEmpty(returnUrl) || returnUrl.Contains("://") || returnUrl.StartsWith("//") || returnUrl.StartsWith("login"))
+        {
+            return "";
+        }
+
+        return returnUrl;
+    }
+
+    private sealed class LoginModel
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+}

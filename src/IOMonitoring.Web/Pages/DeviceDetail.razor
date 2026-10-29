@@ -1,0 +1,132 @@
+@page "/devices/{Id:guid}"
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>@(_detail?.Device.Name ?? "Device") · IO Monitoring</PageTitle>
+
+<MudBreadcrumbs Items="_breadcrumbs" Class="px-0 pt-0" />
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (_detail is null)
+{
+    <MudAlert Severity="Severity.Warning">Device not found.</MudAlert>
+}
+else
+{
+    var d = _detail.Device;
+
+    <div class="d-flex align-center flex-wrap gap-3 mb-6">
+        <MudText Typo="Typo.h4">@d.Name</MudText>
+        <MudChip T="string" Variant="Variant.Outlined" Color="@Ui.StatusColor(d.Status)">@d.Status</MudChip>
+        <MudSpacer />
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.FactCheck"
+                   Href="@($"test-runs?deviceId={d.Id}")">All runs for this device</MudButton>
+    </div>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="4">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-2">Identity</MudText>
+                <MudSimpleTable Dense="true" Elevation="0">
+                    <tbody>
+                        <tr><td>Serial number</td><td><b>@d.SerialNumber</b></td></tr>
+                        <tr><td>Model</td><td>@d.Model</td></tr>
+                        <tr><td>Firmware</td><td>@d.FirmwareVersion</td></tr>
+                        <tr><td>Location</td><td>@d.Location</td></tr>
+                        <tr><td>Commissioned</td><td>@d.CommissionedAt.ToString("yyyy-MM-dd")</td></tr>
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="4">
+            <KpiCard Title="Pass rate" Value="@($"{d.PassRate:0.0} %")" Subtitle="@($"over {d.TotalRuns} runs")"
+                     Icon="@Icons.Material.Filled.Verified" IconColor="@Ui.PassRateColor(d.PassRate)" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="4">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.subtitle2" Color="Color.Secondary">Last result</MudText>
+                <div class="mt-3"><OutcomeChip Outcome="@d.LastOutcome" /></div>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @(d.LastTestedAt is { } t ? $"Tested {Ui.Local(t)}" : "Never tested")
+                </MudText>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12">
+            <MudPaper Elevation="1" Class="pa-4">
+                <MudText Typo="Typo.h6">Results per day — last 30 days</MudText>
+                <MudChart ChartType="ChartType.Bar" ChartSeries="@_trendSeries" XAxisLabels="@_trendLabels"
+                          ChartOptions="@_options" Width="100%" Height="300px" />
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12">
+            <MudPaper Elevation="1" Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Recent runs</MudText>
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                    <thead>
+                        <tr><th>Started</th><th>Duration</th><th>Station</th><th>Operator</th><th>Channels</th><th>Result</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var run in _detail.RecentRuns)
+                        {
+                            <tr class="clickable-row" @onclick="@(() => Nav.NavigateTo($"test-runs/{run.Id}"))">
+                                <td>@Ui.Local(run.StartedAt)</td>
+                                <td>@Ui.Duration(run.DurationSeconds)</td>
+                                <td>@run.Station</td>
+                                <td>@run.Operator</td>
+                                <td>@(run.ChannelCount - run.FailedChannels) / @run.ChannelCount OK</td>
+                                <td><OutcomeChip Outcome="@run.Outcome" /></td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private DeviceDetailDto? _detail;
+    private bool _loading = true;
+    private List<ChartSeries> _trendSeries = new();
+    private string[] _trendLabels = Array.Empty<string>();
+    private readonly ChartOptions _options = new() { ChartPalette = Ui.OutcomePalette, YAxisTicks = 1 };
+
+    private List<BreadcrumbItem> _breadcrumbs = new()
+    {
+        new BreadcrumbItem("Devices", href: "devices")
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _detail = await Api.GetDeviceAsync(Id);
+
+        if (_detail is not null)
+        {
+            var trend = _detail.Trend;
+            // Show a label every 5 days so the axis stays readable.
+            _trendLabels = trend.Select((p, i) => i % 5 == 0 ? p.Date.ToString("dd/MM") : string.Empty).ToArray();
+            _trendSeries = new List<ChartSeries>
+            {
+                new() { Name = "Passed", Data = trend.Select(p => (double)p.Passed).ToArray() },
+                new() { Name = "Failed", Data = trend.Select(p => (double)p.Failed).ToArray() },
+                new() { Name = "Aborted", Data = trend.Select(p => (double)p.Aborted).ToArray() }
+            };
+
+            _breadcrumbs = new List<BreadcrumbItem>
+            {
+                new("Devices", href: "devices"),
+                new(_detail.Device.SerialNumber, href: null, disabled: true)
+            };
+        }
+
+        _loading = false;
+    }
+}

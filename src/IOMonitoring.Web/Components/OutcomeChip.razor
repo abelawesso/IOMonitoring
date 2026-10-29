@@ -1,0 +1,12 @@
+@if (!string.IsNullOrEmpty(Outcome))
+{
+    <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@Ui.OutcomeColor(Outcome)">@Outcome</MudChip>
+}
+else
+{
+    <MudText Typo="Typo.caption" Color="Color.Secondary">—</MudText>
+}
+
+@code {
+    [Parameter] public string? Outcome { get; set; }
+}

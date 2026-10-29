@@ -1,0 +1,172 @@
+@page "/test-runs"
+@inject ApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>Test runs · IO Monitoring</PageTitle>
+
+<MudText Typo="Typo.h4">Test runs</MudText>
+<MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-6">Every execution recorded by the test benches, newest first</MudText>
+
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <div class="d-flex flex-wrap align-end gap-4">
+        <MudSelect T="Guid?" @bind-Value="_deviceId" Label="Device" Clearable="true" Style="min-width: 220px">
+            @foreach (var d in _devices)
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)d.Id)">@d.SerialNumber — @d.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="string" @bind-Value="_outcome" Label="Result" Clearable="true" Style="max-width: 180px">
+            <MudSelectItem T="string" Value="@("Passed")">Passed</MudSelectItem>
+            <MudSelectItem T="string" Value="@("Failed")">Failed</MudSelectItem>
+            <MudSelectItem T="string" Value="@("Aborted")">Aborted</MudSelectItem>
+        </MudSelect>
+        <MudDatePicker @bind-Date="_from" Label="From" Clearable="true" DateFormat="yyyy-MM-dd" Style="max-width: 180px" />
+        <MudDatePicker @bind-Date="_to" Label="To" Clearable="true" DateFormat="yyyy-MM-dd" Style="max-width: 180px" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.FilterList" OnClick="ApplyAsync">Apply</MudButton>
+        <MudButton Variant="Variant.Text" OnClick="ResetAsync">Reset</MudButton>
+    </div>
+</MudPaper>
+
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+}
+
+<MudPaper Elevation="1" Class="pa-4">
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-2" />
+    }
+
+    <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+        <thead>
+            <tr>
+                <th>Started</th><th>Device</th><th>Station</th><th>Operator</th>
+                <th>Duration</th><th>Channels</th><th>Result</th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (_result is { Items.Count: > 0 })
+            {
+                foreach (var run in _result.Items)
+                {
+                    <tr class="clickable-row" @onclick="@(() => Nav.NavigateTo($"test-runs/{run.Id}"))">
+                        <td>@Ui.Local(run.StartedAt)</td>
+                        <td>@run.DeviceName <MudText Typo="Typo.caption" Color="Color.Secondary" Inline="true">@run.DeviceSerial</MudText></td>
+                        <td>@run.Station</td>
+                        <td>@run.Operator</td>
+                        <td>@Ui.Duration(run.DurationSeconds)</td>
+                        <td>
+                            @if (run.FailedChannels > 0)
+                            {
+                                <MudText Typo="Typo.body2" Color="Color.Error">@run.FailedChannels failed / @run.ChannelCount</MudText>
+                            }
+                            else
+                            {
+                                <span>@run.ChannelCount OK</span>
+                            }
+                        </td>
+                        <td><OutcomeChip Outcome="@run.Outcome" /></td>
+                    </tr>
+                }
+            }
+            else if (!_loading)
+            {
+                <tr><td colspan="7"><MudText Color="Color.Secondary">No test runs match the filters.</MudText></td></tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+
+    @if (_result is not null)
+    {
+        <div class="d-flex align-center justify-end mt-3 gap-2">
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                @_result.TotalCount runs · page @_result.Page of @Math.Max(1, _result.PageCount)
+            </MudText>
+            <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" Disabled="@(_page <= 1 || _loading)" OnClick="PreviousAsync" />
+            <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Disabled="@(_page >= _result.PageCount || _loading)" OnClick="NextAsync" />
+        </div>
+    }
+</MudPaper>
+
+@code {
+    private const int PageSize = 25;
+
+    private List<DeviceDto> _devices = new();
+    private PagedResult<TestRunDto>? _result;
+    private bool _loading = true;
+    private string? _error;
+
+    private Guid? _deviceId;
+    private string? _outcome;
+    private DateTime? _from;
+    private DateTime? _to;
+    private int _page = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Pre-filter from query string, e.g. /test-runs?outcome=Failed or ?deviceId=...
+        var query = System.Web.HttpUtility.ParseQueryString(new Uri(Nav.Uri).Query);
+        _outcome = query["outcome"];
+        if (Guid.TryParse(query["deviceId"], out var deviceId))
+        {
+            _deviceId = deviceId;
+        }
+
+        try
+        {
+            _devices = await Api.GetDevicesAsync() ?? new();
+        }
+        catch (HttpRequestException ex)
+        {
+            _error = $"Could not load devices: {ex.Message}";
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _result = await Api.GetTestRunsAsync(new TestRunFilter(_deviceId, _outcome, _from, _to, _page, PageSize));
+        }
+        catch (HttpRequestException ex)
+        {
+            _error = $"Could not load test runs: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ApplyAsync()
+    {
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private async Task ResetAsync()
+    {
+        _deviceId = null;
+        _outcome = null;
+        _from = null;
+        _to = null;
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private async Task PreviousAsync()
+    {
+        _page--;
+        await LoadAsync();
+    }
+
+    private async Task NextAsync()
+    {
+        _page++;
+        await LoadAsync();
+    }
+}
